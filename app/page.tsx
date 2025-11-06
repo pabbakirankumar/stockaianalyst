@@ -1,19 +1,68 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function FinanceChatbot() {
   const [input, setInput] = useState('');
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [selectedInsight, setSelectedInsight] = useState<string | null>(null);
-  const { messages, sendMessage, isLoading } = useChat({
-    api: '/api/chat',
+  const [isLoading, setIsLoading] = useState(false);
+  const { messages, sendMessage } = useChat({
     onError: (error) => {
       console.error('Chat error:', error);
+      setIsLoading(false);
     }
   });
+
+  // Track loading state and detect when streaming completes
+  useEffect(() => {
+    // Safety: always reset loading if there are no messages
+    if (messages.length === 0) {
+      setIsLoading(false);
+      return;
+    }
+    
+    if (!isLoading) return; // Only process if we're in loading state
+    
+    const lastMessage = messages[messages.length - 1];
+    
+    if (lastMessage && lastMessage.role === 'assistant') {
+      // Check if assistant message has complete text content
+      const textParts = lastMessage.parts.filter(part => part.type === 'text');
+      if (textParts.length > 0) {
+        const hasCompleteText = textParts.some(part => 
+          part.text && typeof part.text === 'string' && part.text.trim().length > 0
+        );
+        
+        if (hasCompleteText) {
+          // Message appears complete, stop loading after a brief delay
+          const timer = setTimeout(() => {
+            setIsLoading(false);
+          }, 500);
+          return () => clearTimeout(timer);
+        }
+      }
+    }
+  }, [messages, isLoading]);
+
+  // Safety timeout: if loading is true for more than 30 seconds, reset it
+  useEffect(() => {
+    if (!isLoading) return;
+    
+    const timeout = setTimeout(() => {
+      console.warn('Loading state timeout - resetting');
+      setIsLoading(false);
+    }, 30000); // 30 second timeout
+    
+    return () => clearTimeout(timeout);
+  }, [isLoading]);
+
+  // Initialize: ensure loading is false on mount
+  useEffect(() => {
+    setIsLoading(false);
+  }, []);
 
   const tabs = ['Dashboard', 'Expenses', 'Investments', 'AI Insights', 'Settings'];
   
@@ -510,6 +559,7 @@ export default function FinanceChatbot() {
                   onSubmit={(e) => {
                     e.preventDefault();
                     if (input.trim() && !isLoading) {
+                      setIsLoading(true);
                       sendMessage({ text: input });
                       setInput('');
                     }
